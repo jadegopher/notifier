@@ -1,7 +1,7 @@
 package notifier
 
 import (
-	"context"
+	"notifier/log"
 )
 
 func Notify(msg string) {
@@ -9,40 +9,30 @@ func Notify(msg string) {
 }
 
 func (n *Notifier) Notify(msg string) {
+	// closed channel + buffr overflow
 	n.inputChan <- msg
 }
 
-func (n *Notifier) Init(ctx context.Context) {
-	//n.errGroup = &errgroup.Group{}
-	n.errGroup.Go(n.handle)
+func (n *Notifier) Start() {
+	n.wg.Add(1)
+	go func() {
+		defer n.wg.Done()
+		n.aggregator.Handle()
+	}()
 
-	//
-	n.errGroup.Go(
-		func() error {
-			<-ctx.Done()
+	for i := 0; i < n.sendersCount; i++ {
+		n.wg.Add(1)
 
-			n.logger.Debug("Notifier: context done received")
-		},
-	)
-}
+		go func(id int) {
+			defer n.wg.Done()
 
-func (n *Notifier) handle() error {
-	select {
-	case msg, ok := <-n.inputChan:
-		if !ok {
-
-		}
+			n.sender.Run(id)
+		}(i)
 	}
-
-	return nil
 }
 
-func (n *Notifier) flush() {
-
-}
-
-func (n *Notifier) finishAggregator() {
-	n.logger.Debug("Notifier.Aggregator: graceful shutdown in progress...")
-	close(n.outputChan)
-	n.logger.Debug("Notifier.Aggregator: finished")
+func (n *Notifier) Stop() {
+	log.Debug("Notifier: Graceful shutdown in progress...")
+	close(n.inputChan)
+	n.wg.Wait()
 }

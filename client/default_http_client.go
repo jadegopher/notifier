@@ -4,37 +4,54 @@ import (
 	"context"
 	"net/http"
 
-	"notifier/log"
-	"notifier/log/tag"
+	"github.com/go-resty/resty/v2"
+	"golang.org/x/time/rate"
+
+	"notifier/errs"
 )
 
 type DefaultHTTPClient struct {
-	c *http.Client
+	c            *resty.Client
+	limiter      *rate.Limiter
+	errorHandler ErrorHandler
 }
 
-func NewDefaultHTTPClient(c *http.Client) HTTPClient {
-	return &DefaultHTTPClient{c: c}
+func NewDefaultHTTPClient(c *resty.Client, limiter *rate.Limiter, errorHandler ErrorHandler) HTTPClient {
+	d := &DefaultHTTPClient{c: c, limiter: limiter, errorHandler: errorHandler}
+
+	if d.errorHandler == nil {
+		d.errorHandler = DefaultErrorHandler
+	}
+
+	return d
 }
 
 func (r *DefaultHTTPClient) Do(
 	ctx context.Context,
 	req *http.Request,
-	opts Options,
 ) (*http.Response, error) {
-	resp, err := r.c.Do(req.WithContext(ctx))
-	if err != nil {
-		log.Error(ctx, "Failed to execute request", tag.Err, err)
-
+	err := r.limiter.Wait(ctx)
+	if err = r.errorHandler(nil, errs.Wrap(err, "rate limiter")); err != nil {
 		return nil, err
 	}
 
-	if opts.ErrHandler == nil {
-		opts.ErrHandler = DefaultErrorHandler
-	}
+	// Create a Resty request and copy fields from stdReq
+	restyReq := r.c.R().
+		SetContext(req.Context()).
+		SetHeaderMultiValues(req.Header).SetBody(req.Body)
 
-	if err = opts.ErrHandler(resp); err != nil {
+	resp, err := restyReq.Execute(req.Method, req.URL.String())
+	if err = r.errorHandler(getRawResponse(resp), err); err != nil {
 		return nil, err
 	}
 
-	return resp, nil
+	return getRawResponse(resp), nil
+}
+
+func getRawResponse(resp *resty.Response) *http.Response {
+	if resp == nil {
+		return nil
+	}
+
+	return resp.RawResponse
 }

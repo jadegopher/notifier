@@ -30,7 +30,8 @@ func TestDefaultErrorHandler(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
-		r *http.Response
+		r   *http.Response
+		err error
 	}
 	tests := []struct {
 		name    string
@@ -53,35 +54,53 @@ func TestDefaultErrorHandler(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name:    "bad_request_400_returns_error",
+			name:    "bad_request_400_returns_validation_error",
 			args:    args{r: newResponse(t, http.StatusBadRequest, `{"error":"invalid fields"}`)},
 			wantErr: errs.ErrValidation,
 		},
 		{
-			name:    "not_found_404_returns_error",
+			name:    "not_found_404_returns_not_found_error",
 			args:    args{r: newResponse(t, http.StatusNotFound, `{"error":"not found"}`)},
 			wantErr: errs.ErrNotFound,
 		},
 		{
-			name:    "internal_server_error_500_returns_error",
+			name:    "internal_server_error_500_returns_internal_error",
 			args:    args{r: newResponse(t, http.StatusInternalServerError, `{"error":"boom"}`)},
 			wantErr: errs.ErrInternal,
 		},
 		{
-			name: "two_response",
-			args: args{
-				r: newResponse(t, http.StatusInternalServerError, `{"error":"boom"}`),
-			},
+			// Tests the "default" switch case
+			name:    "forbidden_403_returns_internal_error",
+			args:    args{r: newResponse(t, http.StatusForbidden, ``)},
 			wantErr: errs.ErrInternal,
+		},
+		{
+			// Tests the "default" switch case
+			name:    "teapot_418_returns_internal_error",
+			args:    args{r: newResponse(t, http.StatusTeapot, ``)},
+			wantErr: errs.ErrInternal,
+		},
+
+		{
+			// Case where 'Do' failed before sending request (e.g. context timeout)
+			name: "preexisting_input_error_returns_it",
+			args: args{
+				r:   nil,
+				err: context.DeadlineExceeded,
+			},
+			wantErr: context.DeadlineExceeded,
 		},
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(
 			tt.name, func(t *testing.T) {
 				t.Parallel()
 
-				err := DefaultErrorHandler(tt.args.r)
+				// Pass both the response and the input error
+				err := DefaultErrorHandler(tt.args.r, tt.args.err)
+
 				if !errors.Is(err, tt.wantErr) {
 					t.Errorf("DefaultErrorHandler() error = %v, wantErr %v", err, tt.wantErr)
 				}

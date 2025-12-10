@@ -13,3 +13,5 @@ serially.
 
 Allow the caller to handle notification failures in case any requests should
 fail.
+
+# HTTP Notifier

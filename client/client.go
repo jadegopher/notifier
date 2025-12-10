@@ -11,17 +11,24 @@ import (
 
 // HTTPClient decouples dependency on specific HTTP requesting library.
 type HTTPClient interface {
-	Do(ctx context.Context, req *http.Request, opts Options) (*http.Response, error)
+	Do(ctx context.Context, req *http.Request) (*http.Response, error)
 }
 
-type ErrorHandler func(r *http.Response) error
+// ErrorHandler Allows the caller to handle notification failures in case any requests fail.
+// Check r for nil!
+type ErrorHandler func(r *http.Response, err error) error
 
-type Options struct {
-	// If not provided, DefaultErrorHandler will be used.
-	ErrHandler ErrorHandler
-}
+func DefaultErrorHandler(r *http.Response, err error) error {
+	if err != nil {
+		log.Error("failed perform request", err)
 
-func DefaultErrorHandler(r *http.Response) error {
+		return err
+	}
+
+	if r == nil {
+		return nil
+	}
+
 	if r.StatusCode >= 200 && r.StatusCode <= 399 {
 		return nil
 	}
@@ -30,10 +37,10 @@ func DefaultErrorHandler(r *http.Response) error {
 	case http.StatusNotFound:
 		return errs.Wrap(errs.ErrNotFound, r.Request.URL.Path)
 	case http.StatusBadRequest:
-		log.Error(r.Request.Context(), "bad request", tag.HTTPCode, r.StatusCode)
+		log.ErrorContext(r.Request.Context(), "bad request", tag.HTTPCode, r.StatusCode)
 		return errs.Wrap(errs.ErrValidation, r.Request.URL.Path)
 	default:
-		log.Error(r.Request.Context(), "unexpected status code", tag.HTTPCode, r.StatusCode)
+		log.ErrorContext(r.Request.Context(), "unexpected status code", tag.HTTPCode, r.StatusCode)
 		return errs.Wrap(errs.ErrInternal, r.Request.URL.Path)
 	}
 }
