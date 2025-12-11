@@ -1,6 +1,7 @@
 package notifier
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -37,21 +38,23 @@ const (
 	DefaultRPS = 1000
 )
 
-var DefaultNotifier = Default()
-
-func Default() *Notifier {
+// Default sets up Notifier with optimal configuration. However, you can use NewNotifier to tweak almost everything.
+func Default(url string) *Notifier {
 	c := resty.New()
 	c.SetTimeout(DefaultHTTPTimeout)
+	c.SetBaseURL(url)
+
+	c.SetRateLimiter(rate.NewLimiter(rate.Limit(DefaultRPS), DefaultRPS))
 
 	// Backoff retry mechanism
 	c.SetRetryWaitTime(DefaultRetryDelay)
 	c.SetRetryMaxWaitTime(DefaultRetryMaxDelay)
 	c.SetRetryCount(DefaultRetryCount)
+	c.AddRetryCondition(client.DefaultRetryCondition)
 
 	return NewNotifier(
 		client.NewDefaultHTTPClient(
 			c,
-			rate.NewLimiter(rate.Limit(DefaultRPS), DefaultRPS),
 			client.DefaultErrorHandler,
 		),
 		DefaultInputChanSize,
@@ -59,6 +62,7 @@ func Default() *Notifier {
 		DefaultBatchSizeBytes,
 		DefaultSendersCount,
 		DefaultFlushInterval,
+		internal.DefaultSend,
 	)
 }
 
@@ -80,6 +84,7 @@ func NewNotifier(
 	batchSize int,
 	sendersCount int,
 	flushInterval time.Duration,
+	senderFunc func(ctx context.Context, httpClient client.HTTPClient, msg []string) error,
 ) *Notifier {
 	n := &Notifier{
 		inputChan:    make(chan string, inputChanSize),
@@ -89,7 +94,7 @@ func NewNotifier(
 
 	n.aggregator = internal.NewAggregator(n.inputChan, outputChanSize, batchSize, flushInterval)
 
-	n.sender = internal.NewSender(n.aggregator.OutputChan(), httpClient, internal.DefaultBodyEncoder())
+	n.sender = internal.NewSender(n.aggregator.OutputChan(), httpClient, senderFunc)
 
 	return n
 }

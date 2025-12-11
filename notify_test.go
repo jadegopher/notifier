@@ -1,48 +1,51 @@
 package notifier
 
 import (
-	"sync"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
+	"time"
 
-	"notifier/internal"
+	"github.com/google/go-cmp/cmp"
 )
 
-func TestNotifier_Notify(t *testing.T) {
+func TestNotifier_End_To_End(t *testing.T) {
 	t.Parallel()
 
-	type fields struct {
-		inputChan    chan string
-		aggregator   *internal.Aggregator
-		sendersCount int
-		sender       *internal.Sender
-		wg           *sync.WaitGroup
-	}
+	var requestCount int32
 
-	type args struct {
-		msg string
-	}
+	receivedBody := ""
 
-	tests := []struct {
-		name   string
-		fields fields
-		args   args
-	}{
-		// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(
-			tt.name, func(t *testing.T) {
-				t.Parallel()
+	server := httptest.NewServer(
+		http.HandlerFunc(
+			func(w http.ResponseWriter, r *http.Request) {
+				time.Sleep(100 * time.Millisecond)
+				// Read body to verify content
+				bodyBytes, _ := io.ReadAll(r.Body)
+				receivedBody = string(bodyBytes)
 
-				n := &Notifier{
-					inputChan:    tt.fields.inputChan,
-					aggregator:   tt.fields.aggregator,
-					sendersCount: tt.fields.sendersCount,
-					sender:       tt.fields.sender,
-					wg:           tt.fields.wg,
-				}
-				n.Notify(tt.args.msg)
+				atomic.AddInt32(&requestCount, 1)
+				w.WriteHeader(http.StatusOK)
 			},
-		)
+		),
+	)
+	defer server.Close()
+
+	n := Default(server.URL)
+
+	n.Start()
+
+	testMsg := "hello_world_integration"
+	n.Notify(testMsg)
+	n.Stop()
+
+	if diff := cmp.Diff(atomic.LoadInt32(&requestCount), int32(1)); diff != "" {
+		t.Errorf("Request count mismatch (-want +got):\n%s", diff)
+	}
+
+	if diff := cmp.Diff(`{"messages":["hello_world_integration"]}`, receivedBody); diff != "" {
+		t.Errorf("Body missmatch (-want +got):\n%s", diff)
 	}
 }

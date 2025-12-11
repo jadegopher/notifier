@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"net/url"
 
 	"notifier/client"
 	"notifier/log"
@@ -14,37 +13,33 @@ import (
 )
 
 type Sender struct {
-	inputChan        <-chan []string
-	url              *url.URL
-	httpClient       client.HTTPClient
-	httpErrorHandler client.ErrorHandler
-	bodyEncoder      func(context.Context, []string) (io.ReadCloser, error)
+	inputChan  <-chan []string
+	httpClient client.HTTPClient
+	senderFunc func(ctx context.Context, httpClient client.HTTPClient, msg []string) error
 }
 
-func DefaultBodyEncoder() func(context.Context, []string) (io.ReadCloser, error) {
-	return func(ctx context.Context, s []string) (io.ReadCloser, error) {
-		resp := struct {
-			Messages []string `json:"messages"`
-		}{Messages: s}
+func encodeBody(_ context.Context, s []string) (io.ReadCloser, error) {
+	resp := struct {
+		Messages []string `json:"messages"`
+	}{Messages: s}
 
-		b, err := json.Marshal(resp)
-		if err != nil {
-			return nil, err
-		}
-
-		return io.NopCloser(bytes.NewReader(b)), nil
+	b, err := json.Marshal(resp)
+	if err != nil {
+		return nil, err
 	}
+
+	return io.NopCloser(bytes.NewReader(b)), nil
 }
 
 func NewSender(
 	inputChan <-chan []string,
 	httpClient client.HTTPClient,
-	bodyEncoder func(context.Context, []string) (io.ReadCloser, error),
+	senderFunc func(ctx context.Context, httpClient client.HTTPClient, msg []string) error,
 ) *Sender {
 	return &Sender{
-		inputChan:   inputChan,
-		httpClient:  httpClient,
-		bodyEncoder: bodyEncoder,
+		inputChan:  inputChan,
+		httpClient: httpClient,
+		senderFunc: senderFunc,
 	}
 }
 
@@ -54,26 +49,33 @@ func (s *Sender) Run(id int) {
 	for msg := range s.inputChan {
 		ctx := context.Background()
 
-		body, err := s.bodyEncoder(ctx, msg)
-		if err != nil {
-			log.ErrorContext(ctx, "failed to encode body. dropping msgs", tag.Err, err, tag.Msgs, msg)
-
-			continue
-		}
-
-		_, err = s.httpClient.Do(
-			ctx, &http.Request{
-				Method: http.MethodPost,
-				URL:    s.url,
-				Body:   body,
-			},
-		)
-		if err != nil {
-			log.ErrorContext(ctx, "failed to send msgs", tag.Err, err, tag.Msgs, msg)
-
+		if err := s.senderFunc(ctx, s.httpClient, msg); err != nil {
 			continue
 		}
 	}
 
 	log.Debug("sender finished", "id", id)
+}
+
+func DefaultSend(ctx context.Context, httpClient client.HTTPClient, msg []string) error {
+	body, err := encodeBody(ctx, msg)
+	if err != nil {
+		log.ErrorContext(ctx, "failed to encode body. dropping msgs", tag.Err, err, tag.Msgs, msg)
+
+		return err
+	}
+
+	_, err = httpClient.Do(
+		ctx, &http.Request{
+			Method: http.MethodPost,
+			Body:   body,
+		},
+	)
+	if err != nil {
+		log.ErrorContext(ctx, "failed to send msgs", tag.Err, err, tag.Msgs, msg)
+
+		return err
+	}
+
+	return nil
 }

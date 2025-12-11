@@ -171,7 +171,7 @@ func Test_batch_Flush(t *testing.T) {
 				sizeBytes:    0,
 				data:         nil,
 			},
-			wantData: []string{}, // copy() on nil creates empty slice
+			wantData: []string{},
 			wantSize: 0,
 		},
 	}

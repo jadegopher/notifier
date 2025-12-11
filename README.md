@@ -14,4 +14,135 @@ serially.
 Allow the caller to handle notification failures in case any requests should
 fail.
 
-# HTTP Notifier
+# Notifier
+
+This library implements the HTTP notification client.
+For plug and play experience, I would recommend to use `func Default(url string) *Notifier` func to create new Notifier.
+
+Here is a simple example of how to set up `Notifier`:
+
+```golang
+package main
+
+import "github.com/jadegopher/notifier"
+
+func main() {
+	n := notifier.Default("your url")
+
+	n.Start()
+
+	n.Notify("hello_world")
+	n.Stop()
+}
+```
+
+You also can check `/cmd/main.go` as an example.
+
+## Things that you need to know if you use Default config
+
+You can stuck at `Notify` call if `inputChan` is overflowed. 
+
+By Default:
+
+- Rate limiting strategy drops all requests over set limit;
+- Only requests with Status Code **500** are retried;
+- 
+
+## Architecture
+
+The `Notifier` consists of several components:
+
+- Aggregator
+- HTTP client
+- Sender
+
+Here is a digram that shows the interaction of mentioned components:
+
+```mermaid
+graph LR
+%% New Palette Definitions - High Contrast
+%% External Components (Bright, bold colors)
+    classDef external fill:#ff0077,stroke:#b30054,stroke-width:2px,color:#ffffff;
+%% Notifier Container (Subtle, high-contrast border)
+    classDef container fill:#f0f0f0,stroke:#333333,stroke-width:3px,stroke-dasharray: 8 4;
+%% Internal Logic Components (Cool, legible blues)
+    classDef internal fill:#0099ff,stroke:#0066cc,stroke-width:2px,color:#ffffff;
+%% Storage Components (Warm, distinct oranges)
+    classDef storage fill:#ff8800,stroke:#cc6600,stroke-width:2px,rx:5,ry:5,color:#ffffff;
+
+%% External Actor
+    User("User Code<br/>calls n.Notify()"):::external
+%% The Notifier Container
+    subgraph Notifier [Notifier]
+        direction LR
+    %% Notifier Label
+        label("NOTIFIER"):::container
+        InputChan[("inputChan<br/>(Buffer)")]:::storage
+        Aggregator("Aggregator<br/>(Logic)"):::internal
+        OutputChan[("OutputChan<br/>(Batched Data)")]:::storage
+        Sender("Sender<br/>(Worker Pool)"):::internal
+        Client("HTTP Client<br/>(Resty + Rate Limiter)"):::internal
+    end
+%% External Destination
+    API("External API"):::external
+%% Relationships
+    User -->|1. Push String| InputChan
+    InputChan -->|2. Consume| Aggregator
+    Aggregator -- Loop: Wait for Batch/Time --> Aggregator
+    Aggregator -->|3. Flush Batch| OutputChan
+    OutputChan -->|4. Consume Batch| Sender
+    Sender -->|5. Execute| Client
+    Client -->|6. HTTP POST| API
+%% Apply styles
+    class Notifier container
+    class label container
+```
+
+### 1. Push string
+
+The main idea that when Use's code is invoking `Notify("msg")` function we put it into a buffered channel called 
+`inputChannel`. Such decision fits the requirement of async notifications processing.
+
+### 2. Consume
+
+On the next step the `Aggregator` consumes notifications and stores into `Batch`. 
+By batching notifications, we reduce the number of HTTP requests that are needed to be sent. 
+
+Aggregator is a single instance component that cannot be scaled. 
+
+The benchmark shows next numbers when a single notifier handles parallel requests:
+
+```text
+goos: darwin
+goarch: arm64
+pkg: notifier/internal
+cpu: Apple M4
+BenchmarkAggregator_Handle_Parallel
+BenchmarkAggregator_Handle_Parallel-10    	 7036036	       196.4 ns/op	 539.63 MB/s	      39 B/op	       0 allocs/op
+PASS
+
+Process finished with the exit code 0
+```
+
+### 3. Flush Batch
+
+Then `Batch` is flushed into `outputChannel` on **overflow** condition or by **timer** condition. 
+Those parameters can be configured.
+
+Also, `Batch` can be flushed on graceful shutdown, but we'll talk about this later.
+
+### 4. Consume Batch
+
+`Notifier` has static worker pool of **N** `Senders` that are responsible to send batched notifications 
+to the configured URL via HTTP client.
+
+We need to scale `Senders` because usually HTTP requests take meaningful amount of time to complete.
+
+### 5. Execute
+
+By default `Sender` marshall notifications into JSON body of POST request and sends them by using 
+[resty](https://github.com/go-resty/resty) client.
+
+This client implements automatic retries of failed requests and also has included rate limiting feature. 
+
+

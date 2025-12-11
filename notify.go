@@ -4,15 +4,13 @@ import (
 	"notifier/log"
 )
 
-func Notify(msg string) {
-	DefaultNotifier.Notify(msg)
-}
-
 func (n *Notifier) Notify(msg string) {
-	// closed channel + buffr overflow
+	// closed channel + buffer overflow
 	n.inputChan <- msg
 }
 
+// Start is initialization function of notifier. It's necessary to call.
+// Start spin up Aggregator and worker pool of sendersCount Senders.
 func (n *Notifier) Start() {
 	n.wg.Add(1)
 	go func() {
@@ -31,6 +29,7 @@ func (n *Notifier) Start() {
 	}
 }
 
+// Stop initiates a graceful shutdown mechanism. It's required to call to finish notifier gracefully.
 func (n *Notifier) Stop() {
 	log.Debug("Notifier: Graceful shutdown in progress...")
 	close(n.inputChan)

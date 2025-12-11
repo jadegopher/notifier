@@ -68,11 +68,7 @@ func TestDefaultHTTPClient_Do(t *testing.T) {
 				c: resty.New().
 					SetRetryCount(3).
 					SetRetryWaitTime(1 * time.Millisecond).
-					AddRetryCondition(
-						func(r *resty.Response, err error) bool {
-							return r.StatusCode() == http.StatusInternalServerError
-						},
-					),
+					AddRetryCondition(DefaultRetryCondition),
 				limiter: rate.NewLimiter(rate.Inf, 0),
 			},
 			args: args{
@@ -93,11 +89,7 @@ func TestDefaultHTTPClient_Do(t *testing.T) {
 					SetRetryCount(2).
 					SetRetryWaitTime(1 * time.Millisecond).
 					// Even with retry condition, this will eventually fail
-					AddRetryCondition(
-						func(r *resty.Response, err error) bool {
-							return r.StatusCode() == http.StatusInternalServerError
-						},
-					),
+					AddRetryCondition(DefaultRetryCondition),
 				limiter: rate.NewLimiter(rate.Inf, 0),
 			},
 			args: args{
