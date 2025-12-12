@@ -1,0 +1,18 @@
+{
+  "mappings": [
+    {
+      "priority": 1,
+      "request": {
+        "urlPathTemplate": "/notify",
+        "method": "POST"
+      },
+      "response": {
+        "status": 201,
+        "fixedDelayMilliseconds": 300,
+        "headers": {
+          "Content-Type": "application/json"
+        }
+      }
+    }
+  ]
+}

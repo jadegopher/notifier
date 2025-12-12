@@ -32,7 +32,14 @@ func (r *DefaultHTTPClient) Do(
 ) (*http.Response, error) {
 	restyReq := r.c.R().SetContext(ctx).SetBody(req.Body)
 
-	resp, err := restyReq.Execute(req.Method, "")
+	resp, err := restyReq.Execute(
+		req.Method, func() string {
+			if req.URL == nil {
+				return ""
+			}
+			return req.URL.String()
+		}(),
+	)
 	if err = r.errorHandler(getRawResponse(resp), err); err != nil {
 		return nil, err
 	}

@@ -17,7 +17,6 @@ func TestDefaultHTTPClient_Do(t *testing.T) {
 
 	type fields struct {
 		c            *resty.Client
-		limiter      *rate.Limiter
 		errorHandler ErrorHandler
 	}
 
@@ -40,8 +39,7 @@ func TestDefaultHTTPClient_Do(t *testing.T) {
 				w.WriteHeader(http.StatusOK)
 			},
 			fields: fields{
-				c:       resty.New(),
-				limiter: rate.NewLimiter(rate.Inf, 0),
+				c: resty.New().SetBaseURL("").SetRateLimiter(rate.NewLimiter(rate.Inf, 0)),
 			},
 			args: args{
 				ctx:    context.Background(),
@@ -68,8 +66,8 @@ func TestDefaultHTTPClient_Do(t *testing.T) {
 				c: resty.New().
 					SetRetryCount(3).
 					SetRetryWaitTime(1 * time.Millisecond).
-					AddRetryCondition(DefaultRetryCondition),
-				limiter: rate.NewLimiter(rate.Inf, 0),
+					AddRetryCondition(DefaultRetryCondition).
+					SetRateLimiter(rate.NewLimiter(rate.Inf, 0)),
 			},
 			args: args{
 				ctx:    context.Background(),
@@ -89,8 +87,8 @@ func TestDefaultHTTPClient_Do(t *testing.T) {
 					SetRetryCount(2).
 					SetRetryWaitTime(1 * time.Millisecond).
 					// Even with retry condition, this will eventually fail
-					AddRetryCondition(DefaultRetryCondition),
-				limiter: rate.NewLimiter(rate.Inf, 0),
+					AddRetryCondition(DefaultRetryCondition).
+					SetRateLimiter(rate.NewLimiter(rate.Inf, 0)),
 			},
 			args: args{
 				ctx:    context.Background(),
@@ -105,8 +103,7 @@ func TestDefaultHTTPClient_Do(t *testing.T) {
 				w.WriteHeader(http.StatusOK)
 			},
 			fields: fields{
-				c:       resty.New(),
-				limiter: rate.NewLimiter(rate.Every(1*time.Hour), 1),
+				c: resty.New().SetRateLimiter(rate.NewLimiter(rate.Every(1*time.Hour), 1)),
 			},
 			args: args{
 				ctx: func() context.Context {
@@ -131,10 +128,10 @@ func TestDefaultHTTPClient_Do(t *testing.T) {
 
 				if tt.name == "rate_limit_exceeded_error" {
 					// Consume the single burst token so the next one blocks
-					tt.fields.limiter.Allow()
+					_, _ = tt.fields.c.R().Execute(http.MethodGet, "")
 				}
 
-				r := NewDefaultHTTPClient(tt.fields.c, tt.fields.limiter, tt.fields.errorHandler)
+				r := NewDefaultHTTPClient(tt.fields.c, tt.fields.errorHandler)
 
 				req, err := http.NewRequest(tt.args.method, srv.URL, nil)
 				if err != nil {

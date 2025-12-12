@@ -100,6 +100,7 @@ func TestAggregator_Handle(t *testing.T) {
 		data       []string
 		output     [][]string
 		sleepTime  time.Duration
+		inputDelay time.Duration
 		aggregator Aggregator
 	}{
 		{
@@ -114,24 +115,16 @@ func TestAggregator_Handle(t *testing.T) {
 			output:    [][]string{{"1", "1", "1", "1", "1"}, {"2", "2", "2", "2", "2"}, {"3", "3", "3", "3", "3"}},
 		},
 		{
-			name: "flush_by_overflow_timer_reset",
-			data: []string{
-				"1", "1", "1", "1", "1", "2", "2", "2", "2", "2", "3", "3", "3", "3", "3", "3", "3", "3", "3", "3",
-				"3", "3", "3", "3", "3", "3", "3", "3", "3", "3", "3", "3", "3", "3", "3", "3", "3", "3", "3", "3",
-				"3", "3", "3", "3", "3", "3", "3", "3", "3", "3", "3", "3", "3", "3", "3", "3", "3", "3", "3", "3",
-			},
+			name: "flush_repeated_timer",
+			data: []string{"A", "B", "C"},
 			aggregator: Aggregator{
 				outputChan:    make(chan []string, 10),
-				flushInterval: 100 * time.Microsecond,
-				batch:         newBatch(5),
+				flushInterval: 50 * time.Millisecond,
+				batch:         newBatch(10), // Large batch, forced to use timer
 			},
-			sleepTime: 100 * time.Millisecond,
-			output: [][]string{
-				{"1", "1", "1", "1", "1"}, {"2", "2", "2", "2", "2"}, {"3", "3", "3", "3", "3"},
-				{"3", "3", "3", "3", "3"}, {"3", "3", "3", "3", "3"}, {"3", "3", "3", "3", "3"},
-				{"3", "3", "3", "3", "3"}, {"3", "3", "3", "3", "3"}, {"3", "3", "3", "3", "3"},
-				{"3", "3", "3", "3", "3"}, {"3", "3", "3", "3", "3"}, {"3", "3", "3", "3", "3"},
-			},
+			inputDelay: 100 * time.Millisecond,
+			sleepTime:  50 * time.Millisecond, // Wait a bit after last send
+			output:     [][]string{{"A"}, {"B"}, {"C"}},
 		},
 		{
 			name: "flush_by_timer",
@@ -156,6 +149,7 @@ func TestAggregator_Handle(t *testing.T) {
 			output:    [][]string{{"1", "1", "1", "1", "1", "2", "2", "2", "2", "2", "3", "3", "3", "3", "3"}},
 		},
 	}
+
 	for _, tt := range tests {
 		t.Run(
 			tt.name, func(t *testing.T) {
@@ -165,6 +159,8 @@ func TestAggregator_Handle(t *testing.T) {
 				tt.aggregator.inputChan = inputChan
 
 				wg := &sync.WaitGroup{}
+				// Protect result with mutex since we might be appending while checking (though logic separates them)
+				// or just ensure channel reader finishes.
 				result := make([][]string, 0, len(tt.output))
 
 				wg.Add(2)
@@ -175,7 +171,6 @@ func TestAggregator_Handle(t *testing.T) {
 
 				go func() {
 					defer wg.Done()
-
 					ch := tt.aggregator.OutputChan()
 					for data := range ch {
 						result = append(result, data)
@@ -184,17 +179,17 @@ func TestAggregator_Handle(t *testing.T) {
 
 				for _, data := range tt.data {
 					inputChan <- data
+					if tt.inputDelay > 0 {
+						time.Sleep(tt.inputDelay)
+					}
 				}
 
 				time.Sleep(tt.sleepTime)
-
 				close(inputChan)
-
 				wg.Wait()
 
-				if diff := cmp.Diff(result, tt.output); diff != "" {
-					t.Errorf("Aggregate() mismatch (-want +got):\n%s %s", diff, result)
-					return
+				if diff := cmp.Diff(tt.output, result); diff != "" {
+					t.Errorf("Aggregate() mismatch (-want +got):\n%s", diff)
 				}
 			},
 		)

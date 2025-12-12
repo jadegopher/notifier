@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+
+	"notifier/log"
 )
 
 func TestNotifier_End_To_End(t *testing.T) {
@@ -48,4 +50,45 @@ func TestNotifier_End_To_End(t *testing.T) {
 	if diff := cmp.Diff(`{"messages":["hello_world_integration"]}`, receivedBody); diff != "" {
 		t.Errorf("Body missmatch (-want +got):\n%s", diff)
 	}
+}
+
+func TestNotifier_Notify_No_Panic_After_Stop(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(
+		http.HandlerFunc(
+			func(w http.ResponseWriter, r *http.Request) {
+				time.Sleep(100 * time.Millisecond)
+
+				w.WriteHeader(http.StatusOK)
+			},
+		),
+	)
+	defer server.Close()
+
+	n := Default(server.URL)
+
+	n.Start()
+
+	testMsg := "hello_world_integration"
+	ch := make(chan struct{})
+
+	go func() {
+		n.Notify(testMsg)
+		ch <- struct{}{}
+
+		for {
+			if !n.Notify(testMsg) {
+				log.Info("channel closed")
+
+				break
+			}
+		}
+	}()
+
+	<-ch
+
+	n.Notify(testMsg)
+
+	n.Stop()
 }

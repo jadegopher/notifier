@@ -9,15 +9,20 @@ have to reproduce this output):
 
 ## Usage 
 
-`notify --url=URL [<flags>]`
+`notify -url=http://localhost:8080/notify -i=5s`
 
 ## Flags
 
-`--help` Show context-sensitive help (also try `--help-long` and `--help-man`).
+`--help` Show context-sensitive help.
 
-`-i`, `--interval=5s` Notification interval
+`-i` duration
+
+    Notification interval (default 5s)
+
+`-url` string
+
+    Target URL for notifications (default "http://localhost:8080/notify")
 
 ## Example call
 
-`$ notify --url http://localhost:8080/notify < messages.txt`
-
+`$ notify -url=http://localhost:8080/notify -i=5s < test.txt`

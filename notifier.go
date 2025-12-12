@@ -1,8 +1,8 @@
 package notifier
 
 import (
-	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-resty/resty/v2"
@@ -38,8 +38,20 @@ const (
 	DefaultRPS = 1000
 )
 
-// Default sets up Notifier with optimal configuration. However, you can use NewNotifier to tweak almost everything.
-func Default(url string) *Notifier {
+type Options struct {
+	InputChanSize  int
+	OutputChanSize int
+	BatchSize      int
+	SendersCount   int
+	FlushInterval  time.Duration
+}
+
+// Default sets up Notifier with optimal configuration.
+// You can additionally tweak some settings and pass them as Options arg.
+// However, you can use NewNotifier to tweak almost everything.
+func Default(url string, opt ...Options) *Notifier {
+	options := parseOptional(opt)
+
 	c := resty.New()
 	c.SetTimeout(DefaultHTTPTimeout)
 	c.SetBaseURL(url)
@@ -57,11 +69,11 @@ func Default(url string) *Notifier {
 			c,
 			client.DefaultErrorHandler,
 		),
-		DefaultInputChanSize,
-		DefaultOutputChanSize,
-		DefaultBatchSizeBytes,
-		DefaultSendersCount,
-		DefaultFlushInterval,
+		options.InputChanSize,
+		options.OutputChanSize,
+		options.BatchSize,
+		options.SendersCount,
+		options.FlushInterval,
 		internal.DefaultSend,
 	)
 }
@@ -74,6 +86,8 @@ type Notifier struct {
 	sendersCount int
 	sender       *internal.Sender
 
+	isInputChanLocked atomic.Bool
+
 	wg *sync.WaitGroup
 }
 
@@ -84,12 +98,13 @@ func NewNotifier(
 	batchSize int,
 	sendersCount int,
 	flushInterval time.Duration,
-	senderFunc func(ctx context.Context, httpClient client.HTTPClient, msg []string) error,
+	senderFunc internal.SenderFunc,
 ) *Notifier {
 	n := &Notifier{
-		inputChan:    make(chan string, inputChanSize),
-		sendersCount: sendersCount,
-		wg:           &sync.WaitGroup{},
+		inputChan:         make(chan string, inputChanSize),
+		isInputChanLocked: atomic.Bool{},
+		sendersCount:      sendersCount,
+		wg:                &sync.WaitGroup{},
 	}
 
 	n.aggregator = internal.NewAggregator(n.inputChan, outputChanSize, batchSize, flushInterval)
@@ -97,4 +112,36 @@ func NewNotifier(
 	n.sender = internal.NewSender(n.aggregator.OutputChan(), httpClient, senderFunc)
 
 	return n
+}
+
+func parseOptional(opt []Options) Options {
+	if len(opt) == 0 {
+		return Options{
+			InputChanSize:  DefaultInputChanSize,
+			OutputChanSize: DefaultOutputChanSize,
+			BatchSize:      DefaultBatchSizeBytes,
+			SendersCount:   DefaultSendersCount,
+			FlushInterval:  DefaultFlushInterval,
+		}
+	}
+
+	result := opt[0]
+
+	if result.InputChanSize == 0 {
+		result.InputChanSize = DefaultInputChanSize
+	}
+	if result.OutputChanSize == 0 {
+		result.OutputChanSize = DefaultOutputChanSize
+	}
+	if result.BatchSize == 0 {
+		result.BatchSize = DefaultBatchSizeBytes
+	}
+	if result.SendersCount == 0 {
+		result.SendersCount = DefaultSendersCount
+	}
+	if result.FlushInterval == 0 {
+		result.FlushInterval = DefaultFlushInterval
+	}
+
+	return result
 }

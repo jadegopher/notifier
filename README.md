@@ -40,13 +40,11 @@ You also can check `/cmd/main.go` as an example.
 
 ## Things that you need to know if you use Default config
 
-You can stuck at `Notify` call if `inputChan` is overflowed. 
-
 By Default:
 
 - Rate limiting strategy drops all requests over set limit;
-- Only requests with Status Code **500** are retried;
-- 
+- Only requests with Status Code **500** are retried max **3** times;
+- Notifications are sent as HTTP POST request with JSON body `{"messages":["hello_world", "hello_world"]}`.
 
 ## Architecture
 
@@ -100,7 +98,7 @@ graph LR
 
 ### 1. Push string
 
-The main idea that when Use's code is invoking `Notify("msg")` function we put it into a buffered channel called 
+The main idea that when User's code is invoking `Notify("msg")` function we put `"msg"` into a buffered channel called 
 `inputChannel`. Such decision fits the requirement of async notifications processing.
 
 ### 2. Consume
@@ -145,4 +143,29 @@ By default `Sender` marshall notifications into JSON body of POST request and se
 
 This client implements automatic retries of failed requests and also has included rate limiting feature. 
 
+## Configuration
 
+You can configure a lot:
+
+- Logger. Just assign your logger that fits to `Logger` interface to `DefaultLogger` global variable;
+- Error handler for `DefaultHTTPClient` to change error handling logic of HTTP responses;
+- Resty client for `DefaultHTTPClient`;
+- If you don't like `DefaultHTTPClient` you can write your own HTTP client. In this case you need to implement 
+this interface:
+```go
+type HTTPClient interface {
+	Do(ctx context.Context, req *http.Request) (*http.Response, error)
+}
+```
+- Function `senderFunc`. If you don't like a messaging format, you can implement your own `senderFunc`;
+- And other parameters that passed to `NewNotifier` function.
+
+
+## Graceful shutdown
+
+Graceful shutdown performed if User calls `Stop()` function. After it `inputChan` closed and 
+`Aggregator` process all notifications from `inputChan`. If no notifications left in `inputChan` `Aggregator`
+flushes the last `Batch` and sends it to `outputChan` and close it too. 
+Then all `Senders` process batches that left in `outputChan` and finish their job. 
+
+At this point graceful shutdown procedure for `Notifier` completed and only then `Stop()` function will return.

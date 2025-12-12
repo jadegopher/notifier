@@ -1,0 +1,24 @@
+Hello world
+System initialization started
+Checking database connection...
+Database connection established
+Service is ready to accept requests
+User logged in: admin
+Action: update_profile
+Warning: High memory usage detected
+Garbage collection started
+Garbage collection finished
+User logged out: admin
+System shutdown sequence initiated
+Goodbye
+Message with "quotes" inside
+Message with \ backslashes \ inside
+Path: C:\Program Files\Notifier
+JSON injection attempt: {"key": "value"}
+Unicode check: 🚀 Go is awesome! 🐹
+Math symbols: ∑ n=1 to ∞
+Foreign characters: こんにちは (Japanese) γειά σου (Greek)
+   Leading and trailing spaces
+Empty line follows this one:
+
+Line after empty line

@@ -5,4 +5,5 @@ const (
 	HTTPCode = "http_code"
 	Msg      = "msg"
 	Msgs     = "msgs"
+	ID       = "id"
 )

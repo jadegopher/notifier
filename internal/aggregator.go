@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"notifier/log"
-	"notifier/log/tag"
 )
 
 const (
@@ -69,7 +68,7 @@ func (a *Aggregator) Handle() {
 			if !a.batch.Add(msg) {
 				log.Error(
 					"failed to add message after flush. msg not sent",
-					maxBatchSizeBytesTag, a.batch.maxSizeBytes, tag.Msg, msg,
+					maxBatchSizeBytesTag, a.batch.maxSizeBytes,
 				)
 
 				continue
@@ -77,6 +76,7 @@ func (a *Aggregator) Handle() {
 
 		case <-timer.C:
 			a.flush(FlushReasonTimer)
+			resetTimer(timer, a.flushInterval)
 		}
 	}
 }
@@ -93,14 +93,15 @@ func resetTimer(timer *time.Timer, flushInterval time.Duration) {
 
 func (a *Aggregator) flush(reason string) {
 	data, sizeBytes := a.batch.Flush()
-	log.Debug(
-		"batch flushing",
-		"reason", reason, "batch_size_b", sizeBytes, maxBatchSizeBytesTag, a.batch.MaxBatchSizeBytes,
-		"flush_period_ms", a.flushInterval.Milliseconds(),
-	)
 	if sizeBytes == 0 {
 		return
 	}
+
+	log.Debug(
+		"batch flushing",
+		"reason", reason, "batch_size_b", sizeBytes, maxBatchSizeBytesTag, a.batch.MaxBatchSizeBytes(),
+		"flush_period_ms", a.flushInterval.Milliseconds(),
+	)
 
 	a.outputChan <- data
 }

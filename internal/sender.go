@@ -12,10 +12,12 @@ import (
 	"notifier/log/tag"
 )
 
+type SenderFunc func(ctx context.Context, senderID int, httpClient client.HTTPClient, msg []string) error
+
 type Sender struct {
 	inputChan  <-chan []string
 	httpClient client.HTTPClient
-	senderFunc func(ctx context.Context, httpClient client.HTTPClient, msg []string) error
+	senderFunc SenderFunc
 }
 
 func encodeBody(_ context.Context, s []string) (io.ReadCloser, error) {
@@ -34,7 +36,7 @@ func encodeBody(_ context.Context, s []string) (io.ReadCloser, error) {
 func NewSender(
 	inputChan <-chan []string,
 	httpClient client.HTTPClient,
-	senderFunc func(ctx context.Context, httpClient client.HTTPClient, msg []string) error,
+	senderFunc SenderFunc,
 ) *Sender {
 	return &Sender{
 		inputChan:  inputChan,
@@ -49,7 +51,7 @@ func (s *Sender) Run(id int) {
 	for msg := range s.inputChan {
 		ctx := context.Background()
 
-		if err := s.senderFunc(ctx, s.httpClient, msg); err != nil {
+		if err := s.senderFunc(ctx, id, s.httpClient, msg); err != nil {
 			continue
 		}
 	}
@@ -57,10 +59,10 @@ func (s *Sender) Run(id int) {
 	log.Debug("sender finished", "id", id)
 }
 
-func DefaultSend(ctx context.Context, httpClient client.HTTPClient, msg []string) error {
+func DefaultSend(ctx context.Context, id int, httpClient client.HTTPClient, msg []string) error {
 	body, err := encodeBody(ctx, msg)
 	if err != nil {
-		log.ErrorContext(ctx, "failed to encode body. dropping msgs", tag.Err, err, tag.Msgs, msg)
+		log.ErrorContext(ctx, "failed to encode body. dropping msgs", tag.ID, id, tag.Err, err, tag.Msgs, len(msg))
 
 		return err
 	}
@@ -72,10 +74,12 @@ func DefaultSend(ctx context.Context, httpClient client.HTTPClient, msg []string
 		},
 	)
 	if err != nil {
-		log.ErrorContext(ctx, "failed to send msgs", tag.Err, err, tag.Msgs, msg)
+		log.ErrorContext(ctx, "sender: failed to send msgs", tag.ID, id, tag.Err, err, tag.Msgs, len(msg))
 
 		return err
 	}
+
+	log.DebugContext(ctx, "sender: messages sent", tag.ID, id, tag.Msgs, len(msg))
 
 	return nil
 }
